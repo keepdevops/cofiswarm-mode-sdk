@@ -1,20 +1,15 @@
 # cofiswarm-mode-sdk
 
-Cofiswarm component: `mode-sdk`.
+Shared mode plugin contract (C++ reference + Go HTTP helpers).
 
-- Layout: [REPO-STANDARD-LAYOUT](https://github.com/keepdevops/cofiswarmdev/blob/main/docs/REPO-STANDARD-LAYOUT.md)
-- Migration: [MIGRATION-SPRINTS](https://github.com/keepdevops/cofiswarmdev/blob/main/docs/MIGRATION-SPRINTS.md)
+- C++: `include/cofiswarm/mode.h`, `src/registry.cpp` (coordinator legacy)
+- Go: `pkg/mode` — config YAML, envelope, HTTP server scaffold for mode repos
 
-## FHS paths
+## Go usage
 
-| Path | Purpose |
-|------|---------|
-| `/etc/cofiswarm/mode-sdk/` | config |
-| `/var/lib/cofiswarm/mode-sdk/` | state |
-| `/var/log/cofiswarm/mode-sdk/` | logs |
-
-## Test
-
-```bash
-./test/scripts/assert-layout.sh mode-sdk
+```go
+srv, _ := mode.NewServer("flat", "/etc/cofiswarm/mode-flat/mode-flat.yaml")
+http.ListenAndServe(srv.Addr(), srv.Handler())
 ```
+
+Config must include `dispatch_url` and `slot_manager_url`.
