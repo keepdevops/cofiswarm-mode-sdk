@@ -58,6 +58,7 @@ func StreamFlat(cfg Config, w http.ResponseWriter, prompt string, modeConfig map
 		return err
 	}
 	agents = agentsByNames(agents, modeConfig)
+	rt := parseRAGTarget(modeConfig)
 	if sessionID == "" {
 		sessionID = "sess-stream"
 	}
@@ -73,7 +74,7 @@ func StreamFlat(cfg Config, w http.ResponseWriter, prompt string, modeConfig map
 			continue
 		}
 		agent := a.Name
-		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, prompt, maxTok, func(delta string) error {
+		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, rt.inject(agent, prompt), maxTok, func(delta string) error {
 			return sw.emit(sseToken, map[string]string{"agent": agent, "delta": delta})
 		})
 		if err != nil {
@@ -118,6 +119,7 @@ func StreamPipeline(cfg Config, w http.ResponseWriter, prompt string, modeConfig
 		return err
 	}
 	order := pipelineOrder(agents, modeConfig)
+	rt := parseRAGTarget(modeConfig)
 	llama := []Agent{}
 	for _, a := range order {
 		if a.InferBackend() == "llama" && a.Port > 0 {
@@ -151,7 +153,7 @@ func StreamPipeline(cfg Config, w http.ResponseWriter, prompt string, modeConfig
 				prompt, prevAgent, prevOut)
 		}
 		var assembled strings.Builder
-		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, staged, maxTok, func(delta string) error {
+		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, rt.inject(a.Name, staged), maxTok, func(delta string) error {
 			assembled.WriteString(delta)
 			return sw.emit(sseToken, map[string]string{"agent": a.Name, "delta": delta})
 		})
@@ -201,6 +203,7 @@ func StreamRouter(cfg Config, w http.ResponseWriter, prompt string, modeConfig m
 		byName[a.Name] = a
 	}
 	classifier, maxSelect := routerConfig(modeConfig)
+	rt := parseRAGTarget(modeConfig)
 	fm, ok := byName[classifier]
 	if !ok || fm.InferBackend() != "llama" {
 		_ = sw.emit(sseError, map[string]string{"error": "classifier unavailable"})
@@ -238,7 +241,7 @@ func StreamRouter(cfg Config, w http.ResponseWriter, prompt string, modeConfig m
 			_ = sw.emit(sseError, map[string]string{"agent": name, "error": "unavailable"})
 			continue
 		}
-		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, prompt, maxTok, func(delta string) error {
+		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, rt.inject(name, prompt), maxTok, func(delta string) error {
 			return sw.emit(sseToken, map[string]string{"agent": name, "delta": delta})
 		})
 		if err != nil {
@@ -274,6 +277,7 @@ func StreamCascade(cfg Config, w http.ResponseWriter, prompt string, modeConfig 
 		return err
 	}
 	workers := agentsByNames(allAgents, modeConfig)
+	rt := parseRAGTarget(modeConfig)
 	synthName := cascadeSynthName(modeConfig)
 	if sessionID == "" {
 		sessionID = "sess-stream"
@@ -292,7 +296,7 @@ func StreamCascade(cfg Config, w http.ResponseWriter, prompt string, modeConfig 
 			continue
 		}
 		var assembled strings.Builder
-		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, prompt, maxTok, func(delta string) error {
+		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, rt.inject(a.Name, prompt), maxTok, func(delta string) error {
 			assembled.WriteString(delta)
 			return sw.emit(sseToken, map[string]string{"agent": a.Name, "delta": delta})
 		})
@@ -326,7 +330,7 @@ func StreamCascade(cfg Config, w http.ResponseWriter, prompt string, modeConfig 
 	for k, v := range outputs {
 		fmt.Fprintf(&b, "\n--- %s ---\n%s\n", k, v)
 	}
-	_, err = LlamaChatStream(host, synth.Port, synth.SystemPrompt, b.String(), maxTok*2, func(delta string) error {
+	_, err = LlamaChatStream(host, synth.Port, synth.SystemPrompt, rt.inject(synthName, b.String()), maxTok*2, func(delta string) error {
 		return sw.emit(sseToken, map[string]string{"agent": synthName, "delta": delta})
 	})
 	if err != nil {

@@ -80,6 +80,7 @@ func agentsByNames(agents []Agent, modeConfig map[string]interface{}) []Agent {
 
 func runFlat(cfg Config, agents []Agent, prompt string, maxTok int, modeConfig map[string]interface{}) Envelope {
 	agents = agentsByNames(agents, modeConfig)
+	rt := parseRAGTarget(modeConfig)
 	outputs := map[string]string{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -92,7 +93,7 @@ func runFlat(cfg Config, agents []Agent, prompt string, maxTok int, modeConfig m
 		wg.Add(1)
 		go func(ag Agent) {
 			defer wg.Done()
-			out, err := callAgent(cfg, ag, prompt, maxTok)
+			out, err := callAgent(cfg, ag, rt.inject(ag.Name, prompt), maxTok)
 			if err != nil {
 				out = fmt.Sprintf("[unavailable: %v]", err)
 			}
@@ -113,6 +114,7 @@ func runFlat(cfg Config, agents []Agent, prompt string, maxTok int, modeConfig m
 
 func runPipeline(cfg Config, agents []Agent, prompt string, maxTok int, modeConfig map[string]interface{}) Envelope {
 	order := pipelineOrder(agents, modeConfig)
+	rt := parseRAGTarget(modeConfig)
 	outputs := map[string]string{}
 	participants := []string{}
 	prevAgent, prevOut := "", ""
@@ -125,7 +127,7 @@ func runPipeline(cfg Config, agents []Agent, prompt string, maxTok int, modeConf
 			staged = fmt.Sprintf("Original task:\n%s\n\nPrevious agent (%s):\n%s\n\nContinue the workflow.",
 				prompt, prevAgent, prevOut)
 		}
-		out, err := callAgent(cfg, a, staged, maxTok)
+		out, err := callAgent(cfg, a, rt.inject(a.Name, staged), maxTok)
 		if err != nil {
 			out = fmt.Sprintf("[unavailable: %v]", err)
 		}
@@ -182,6 +184,7 @@ func runCascade(cfg Config, agents []Agent, prompt string, maxTok int, modeConfi
 			synthName = s
 		}
 	}
+	rt := parseRAGTarget(modeConfig)
 	flat := runFlat(cfg, agents, prompt, maxTok, modeConfig)
 	excluded := []string{}
 	for name, out := range flat.Agents {
@@ -215,7 +218,7 @@ func runCascade(cfg Config, agents []Agent, prompt string, maxTok int, modeConfi
 			}
 			fmt.Fprintf(&b, "\n--- %s ---\n%s\n", k, v)
 		}
-		out, err := callAgent(cfg, *synth, b.String(), maxTok*2)
+		out, err := callAgent(cfg, *synth, rt.inject(synthName, b.String()), maxTok*2)
 		if err != nil {
 			out = fmt.Sprintf("[unavailable: %v]", err)
 		}
@@ -249,6 +252,7 @@ func runRouter(cfg Config, agents []Agent, prompt string, maxTok int, modeConfig
 			"stub": true, "infer_error": "classifier not in roster",
 		})
 	}
+	rt := parseRAGTarget(modeConfig)
 	routePrompt := buildClassifierPrompt(agents, prompt, maxSelect)
 	selection, err := callAgent(cfg, fm, routePrompt, maxTok)
 	if err != nil {
@@ -266,7 +270,7 @@ func runRouter(cfg Config, agents []Agent, prompt string, maxTok int, modeConfig
 		if !ok {
 			continue
 		}
-		out, err := callAgent(cfg, a, prompt, maxTok)
+		out, err := callAgent(cfg, a, rt.inject(name, prompt), maxTok)
 		if err != nil {
 			out = fmt.Sprintf("[unavailable: %v]", err)
 		}
