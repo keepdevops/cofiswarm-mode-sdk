@@ -14,6 +14,9 @@ type Config struct {
 	SlotManagerURL   string `yaml:"slot_manager_url"`
 	KVPoolURL        string `yaml:"kvpool_url"`
 	AgentRegistryURL string `yaml:"agent_registry_url"`
+	SwarmConfigPath  string `yaml:"swarm_config_path"`
+	InferHost        string `yaml:"infer_host"`
+	DefaultMaxTokens int    `yaml:"default_max_tokens"`
 }
 
 func LoadConfig(path string) (Config, error) {

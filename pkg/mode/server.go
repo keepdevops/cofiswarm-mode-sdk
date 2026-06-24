@@ -41,7 +41,45 @@ func (s *Server) Handler() http.Handler {
 		})
 	})
 	mux.HandleFunc("/v1/execute", s.handleExecute)
+	mux.HandleFunc("/v1/execute/stream", s.handleExecuteStream)
 	return mux
+}
+
+func (s *Server) handleExecuteStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	body, _ := io.ReadAll(r.Body)
+	var req executeRequest
+	if err := json.Unmarshal(body, &req); err != nil || strings.TrimSpace(req.Prompt) == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "empty prompt"})
+		return
+	}
+	sid := r.Header.Get("X-Session-Id")
+	name := normalizeModeName(s.cfg.Mode)
+	var err error
+	switch name {
+	case "flat":
+		err = StreamFlat(s.cfg, w, req.Prompt, req.ModeConfig, sid)
+	case "pipeline":
+		err = StreamPipeline(s.cfg, w, req.Prompt, req.ModeConfig, sid)
+	case "router":
+		err = StreamRouter(s.cfg, w, req.Prompt, req.ModeConfig, sid)
+	case "cascade":
+		err = StreamCascade(s.cfg, w, req.Prompt, req.ModeConfig, sid)
+	default:
+		w.WriteHeader(http.StatusNotImplemented)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "stream not implemented for mode " + name})
+		return
+	}
+	if err != nil {
+		if w.Header().Get("Content-Type") != "text/event-stream" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		}
+	}
 }
 
 type executeRequest struct {
@@ -61,12 +99,14 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "empty prompt"})
 		return
 	}
-	// Bridge: verify slot-manager reachable (best-effort)
 	client := &http.Client{}
 	if resp, err := client.Get(s.cfg.SlotManagerURL + "/healthz"); err == nil {
 		resp.Body.Close()
 	}
-	env := StubEnvelope(s.cfg.Mode, req.Prompt)
+	env := ExecuteMode(s.cfg, s.cfg.Mode, req.Prompt, req.ModeConfig)
+	if env.Meta == nil {
+		env.Meta = map[string]interface{}{}
+	}
 	env.Meta["dispatch_url"] = s.cfg.DispatchURL
 	_ = json.NewEncoder(w).Encode(env)
 }
