@@ -16,9 +16,13 @@ func inferHost(cfg Config) string {
 	return "127.0.0.1"
 }
 
+// LlamaHealthy probes the OpenAI-compatible /v1/models endpoint, which every backend the swarm
+// fronts (llama.cpp server, the MLX python server, vLLM, …) exposes — unlike llama.cpp's native
+// /props, which the host servers here do not serve. A reachable 200 means the backend can take a
+// /v1/chat/completions call.
 func LlamaHealthy(host string, port int) bool {
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://%s:%d/props", host, port))
+	resp, err := client.Get(fmt.Sprintf("http://%s:%d/v1/models", host, port))
 	if err != nil {
 		return false
 	}
