@@ -67,14 +67,14 @@ func StreamFlat(cfg Config, w http.ResponseWriter, prompt string, modeConfig map
 	host := inferHost(cfg)
 	streamed := false
 	for _, a := range agents {
-		if a.InferBackend() != "llama" || a.Port <= 0 {
+		if !engineSupported(a) || a.Port <= 0 {
 			continue
 		}
 		if !LlamaHealthy(host, a.Port) {
 			continue
 		}
 		agent := a.Name
-		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, rt.inject(agent, prompt), maxTok, func(delta string) error {
+		_, err := streamAgent(host, a, rt.inject(agent, prompt), maxTok, func(delta string) error {
 			return sw.emit(sseToken, map[string]string{"agent": agent, "delta": delta})
 		})
 		if err != nil {
@@ -86,7 +86,7 @@ func StreamFlat(cfg Config, w http.ResponseWriter, prompt string, modeConfig map
 		break
 	}
 	if !streamed {
-		_ = sw.emit(sseError, map[string]string{"error": "no healthy llama agent for stream"})
+		_ = sw.emit(sseError, map[string]string{"error": "no healthy agent for stream"})
 		return fmt.Errorf("no stream")
 	}
 	_ = sw.emit(sseMetrics, map[string]any{"stream": true, "calls": 1})
@@ -122,7 +122,7 @@ func StreamPipeline(cfg Config, w http.ResponseWriter, prompt string, modeConfig
 	rt := parseRAGTarget(modeConfig)
 	llama := []Agent{}
 	for _, a := range order {
-		if a.InferBackend() == "llama" && a.Port > 0 {
+		if engineSupported(a) && a.Port > 0 {
 			llama = append(llama, a)
 		}
 	}
@@ -134,7 +134,7 @@ func StreamPipeline(cfg Config, w http.ResponseWriter, prompt string, modeConfig
 	host := inferHost(cfg)
 	total := len(llama)
 	if total == 0 {
-		_ = sw.emit(sseError, map[string]string{"error": "no llama agents in pipeline"})
+		_ = sw.emit(sseError, map[string]string{"error": "no agents in pipeline"})
 		return fmt.Errorf("no pipeline agents")
 	}
 	prevAgent, prevOut := "", ""
@@ -153,7 +153,7 @@ func StreamPipeline(cfg Config, w http.ResponseWriter, prompt string, modeConfig
 				prompt, prevAgent, prevOut)
 		}
 		var assembled strings.Builder
-		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, rt.inject(a.Name, staged), maxTok, func(delta string) error {
+		_, err := streamAgent(host, a, rt.inject(a.Name, staged), maxTok, func(delta string) error {
 			assembled.WriteString(delta)
 			return sw.emit(sseToken, map[string]string{"agent": a.Name, "delta": delta})
 		})
@@ -205,7 +205,7 @@ func StreamRouter(cfg Config, w http.ResponseWriter, prompt string, modeConfig m
 	classifier, maxSelect := routerConfig(modeConfig)
 	rt := parseRAGTarget(modeConfig)
 	fm, ok := byName[classifier]
-	if !ok || fm.InferBackend() != "llama" {
+	if !ok || !engineSupported(fm) {
 		_ = sw.emit(sseError, map[string]string{"error": "classifier unavailable"})
 		return fmt.Errorf("no classifier")
 	}
@@ -220,7 +220,7 @@ func StreamRouter(cfg Config, w http.ResponseWriter, prompt string, modeConfig m
 		return fmt.Errorf("classifier down")
 	}
 	var selection strings.Builder
-	_, err = LlamaChatStream(host, fm.Port, fm.SystemPrompt, buildClassifierPrompt(agents, prompt, maxSelect), maxTok, func(delta string) error {
+	_, err = streamAgent(host, fm, buildClassifierPrompt(agents, prompt, maxSelect), maxTok, func(delta string) error {
 		selection.WriteString(delta)
 		return sw.emit(sseToken, map[string]string{"agent": classifier, "delta": delta})
 	})
@@ -237,11 +237,11 @@ func StreamRouter(cfg Config, w http.ResponseWriter, prompt string, modeConfig m
 			continue
 		}
 		a, ok := byName[name]
-		if !ok || a.InferBackend() != "llama" || !LlamaHealthy(host, a.Port) {
+		if !ok || !engineSupported(a) || !LlamaHealthy(host, a.Port) {
 			_ = sw.emit(sseError, map[string]string{"agent": name, "error": "unavailable"})
 			continue
 		}
-		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, rt.inject(name, prompt), maxTok, func(delta string) error {
+		_, err := streamAgent(host, a, rt.inject(name, prompt), maxTok, func(delta string) error {
 			return sw.emit(sseToken, map[string]string{"agent": name, "delta": delta})
 		})
 		if err != nil {
@@ -288,7 +288,7 @@ func StreamCascade(cfg Config, w http.ResponseWriter, prompt string, modeConfig 
 	outputs := map[string]string{}
 	streamed := 0
 	for _, a := range workers {
-		if a.Name == synthName || a.InferBackend() != "llama" || a.Port <= 0 {
+		if a.Name == synthName || !engineSupported(a) || a.Port <= 0 {
 			continue
 		}
 		if !LlamaHealthy(host, a.Port) {
@@ -296,7 +296,7 @@ func StreamCascade(cfg Config, w http.ResponseWriter, prompt string, modeConfig 
 			continue
 		}
 		var assembled strings.Builder
-		_, err := LlamaChatStream(host, a.Port, a.SystemPrompt, rt.inject(a.Name, prompt), maxTok, func(delta string) error {
+		_, err := streamAgent(host, a, rt.inject(a.Name, prompt), maxTok, func(delta string) error {
 			assembled.WriteString(delta)
 			return sw.emit(sseToken, map[string]string{"agent": a.Name, "delta": delta})
 		})
@@ -318,7 +318,7 @@ func StreamCascade(cfg Config, w http.ResponseWriter, prompt string, modeConfig 
 			break
 		}
 	}
-	if synth == nil || synth.InferBackend() != "llama" || !LlamaHealthy(host, synth.Port) {
+	if synth == nil || !engineSupported(*synth) || !LlamaHealthy(host, synth.Port) {
 		_ = sw.emit(sseError, map[string]string{"error": "synthesizer unavailable"})
 		return fmt.Errorf("no synthesizer")
 	}
@@ -330,7 +330,7 @@ func StreamCascade(cfg Config, w http.ResponseWriter, prompt string, modeConfig 
 	for k, v := range outputs {
 		fmt.Fprintf(&b, "\n--- %s ---\n%s\n", k, v)
 	}
-	_, err = LlamaChatStream(host, synth.Port, synth.SystemPrompt, rt.inject(synthName, b.String()), maxTok*2, func(delta string) error {
+	_, err = streamAgent(host, *synth, rt.inject(synthName, b.String()), maxTok*2, func(delta string) error {
 		return sw.emit(sseToken, map[string]string{"agent": synthName, "delta": delta})
 	})
 	if err != nil {

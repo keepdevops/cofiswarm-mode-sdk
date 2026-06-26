@@ -86,7 +86,7 @@ func runFlat(cfg Config, agents []Agent, prompt string, maxTok int, modeConfig m
 	var wg sync.WaitGroup
 	participants := []string{}
 	for _, a := range agents {
-		if a.InferBackend() != "llama" {
+		if !engineSupported(a) {
 			continue
 		}
 		participants = append(participants, a.Name)
@@ -106,7 +106,7 @@ func runFlat(cfg Config, agents []Agent, prompt string, maxTok int, modeConfig m
 	meta := map[string]interface{}{"infer": true, "participants": participants}
 	if len(outputs) == 0 {
 		return stubWithMeta("flat", prompt, map[string]interface{}{
-			"stub": true, "infer_error": "no llama agents reachable",
+			"stub": true, "infer_error": "no agents reachable",
 		})
 	}
 	return Envelope{Mode: "flat", Agents: outputs, Final: nil, Meta: meta}
@@ -119,7 +119,7 @@ func runPipeline(cfg Config, agents []Agent, prompt string, maxTok int, modeConf
 	participants := []string{}
 	prevAgent, prevOut := "", ""
 	for _, a := range order {
-		if a.InferBackend() != "llama" {
+		if !engineSupported(a) {
 			continue
 		}
 		staged := prompt
@@ -142,7 +142,7 @@ func runPipeline(cfg Config, agents []Agent, prompt string, maxTok int, modeConf
 	meta := map[string]interface{}{"infer": true, "participants": participants}
 	if len(outputs) == 0 {
 		return stubWithMeta("pipeline", prompt, map[string]interface{}{
-			"stub": true, "infer_error": "no llama agents reachable",
+			"stub": true, "infer_error": "no agents reachable",
 		})
 	}
 	return Envelope{Mode: "pipeline", Agents: outputs, Final: final, Meta: meta}
