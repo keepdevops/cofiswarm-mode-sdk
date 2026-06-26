@@ -7,3 +7,5 @@ require (
 	github.com/keepdevops/cofiswarm-backend-sdk v1.1.1-0.20260625031228-aab588ad0e39
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require github.com/keepdevops/cofiswarm-backend-vllm v1.1.1-0.20260626073228-533e04096a0b

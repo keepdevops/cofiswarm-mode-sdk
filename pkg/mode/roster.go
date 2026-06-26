@@ -10,6 +10,7 @@ type Agent struct {
 	Port         int    `json:"port"`
 	Engine       string `json:"engine"`
 	Backend      string `json:"backend"`
+	Model        string `json:"model"` // required by vllm (the shared server needs a model id)
 	SystemPrompt string `json:"system_prompt"`
 	MaxTokens    int    `json:"max_tokens"`
 }
