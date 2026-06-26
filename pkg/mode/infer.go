@@ -77,12 +77,12 @@ func LlamaChat(host string, port int, systemPrompt, userPrompt string, maxTokens
 }
 
 func callAgent(cfg Config, a Agent, userPrompt string, maxTokens int) (string, error) {
-	if a.InferBackend() != "llama" || a.Port <= 0 {
-		return "", fmt.Errorf("agent %q not llama-http", a.Name)
+	if !engineSupported(a) || a.Port <= 0 {
+		return "", fmt.Errorf("agent %q: unsupported engine %q or no port", a.Name, a.InferBackend())
 	}
 	host := inferHost(cfg)
 	if !LlamaHealthy(host, a.Port) {
 		return "", fmt.Errorf("agent %q port %d not healthy", a.Name, a.Port)
 	}
-	return LlamaChat(host, a.Port, a.SystemPrompt, userPrompt, a.MaxTok(maxTokens))
+	return chatAgent(host, a, userPrompt, a.MaxTok(maxTokens))
 }
